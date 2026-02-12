@@ -1,22 +1,48 @@
 import streamlit as st
-from transformers import pipeline
+import requests
 
-st.title("🤖 Tiny Local Chatbot")
+st.title("💬 DeepSeek + Streamlit Chatbot")
 
-@st.cache_resource  # Load model only once
-def load_model():
-    return pipeline("text-generation", model="distilgpt2")  # ~350 MB
+# --- API Configuration ---
+API_URL = "https://api.deepseek.com/chat/completions"
+API_KEY = st.secrets["DEEPSEEK_API_KEY"]  # Streamlit Cloud secrets
 
-chatbot = load_model()
+# --- Session State ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+# --- Display Chat History ---
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-user_input = st.text_input("You:")
-if user_input:
-    response = chatbot(user_input, max_length=50, do_sample=True)[0]['generated_text']
-    st.session_state.history.append(("You", user_input))
-    st.session_state.history.append(("Bot", response))
+# --- User Input ---
+if prompt := st.chat_input("Ask DeepSeek..."):
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-for speaker, text in st.session_state.history:
-    st.write(f"**{speaker}:** {text}")
+    # Call DeepSeek API
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "deepseek-chat",  # or "deepseek-reasoner" for R1
+        "messages": st.session_state.messages[-5:],  # last 5 for context
+        "stream": False
+    }
+
+    with st.spinner("DeepSeek is thinking..."):
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            reply = response.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            reply = f"❌ Error: {str(e)}"
+
+    # Display response
+    with st.chat_message("assistant"):
+        st.markdown(reply)
+    st.session_state.messages.append({"role": "assistant", "content": reply})
